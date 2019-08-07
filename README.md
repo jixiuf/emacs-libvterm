@@ -91,7 +91,6 @@ is ansi color 8-15.
 
 - vterm-color-default
 - vterm-color-black
-- vterm-color-black
 - vterm-color-red
 - vterm-color-green
 - vterm-color-yellow
@@ -102,32 +101,45 @@ is ansi color 8-15.
 
 ## Directory tracking
 
+The `default-directory` would change when you change your working directory.
+
+With `compilation-shell-minor-mode` enabled, you can jump to file references
+via `next-error` and `previous-error` like in a `compilation-mode` buffer.
+
+
+
 For `zsh` put this in your `.zshrc`:
 
 ```zsh
-function chpwd() {
-    print -Pn "\e]51;A$(pwd)\e\\";
+vterm_prompt() {
+      print -Pn "\e]51;A$(pwd)\e\\"
 }
+PROMPT=$PROMPT'%{$(vterm_prompt)%}'
+
 ```
 
-For bash there's no real change directory hook, so you have to rewrite the cd
-command (please als have a look the answers [here](https://unix.stackexchange.com/q/170279)):
+If you want to use `compilation-shell-minor-mode`, please use `PROMPT` and not `chpwd` or `preexec`.
+
+For bash 
 
 ```bash
-cd() {
-  builtin cd "$@" || return
-  [ "$OLDPWD" = "$PWD" ] || echo -e "\e]51;A$(pwd)\e\\"
-}
+PS1='\$ \[\e]51;A$(pwd)\e\\\]'
 ```
+make sure the `\[\e]51;A$(pwd)\e\\\]` is at the end of your prompt
 
 ## Remote directory tracking
 
 Put this in your *remote* .zshrc:
+```bash
+PS1='\$ \[\e]51;A$(whoami)@$(hostname):$(pwd)\e\\\]'
+```
 
 ```zsh
-function chpwd() {
-    print -Pn "\e]51A;$(whoami)@$(hostname):$(pwd)\e\\"
+vterm_prompt() {
+    print -Pn "\e]51;A$(whoami)@$(hostname):$(pwd)\e\\"
 }
+PROMPT=$PROMPT'%{$(vterm_prompt)%}'
+
 ```
 
 ## Related packages

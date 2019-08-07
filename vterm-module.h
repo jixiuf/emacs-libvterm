@@ -19,7 +19,9 @@ int plugin_is_GPL_compatible;
 
 typedef struct ScrollbackLine {
   size_t cols;
+  char *directory;
   VTermScreenCell cells[];
+
 } ScrollbackLine;
 
 enum {
@@ -64,8 +66,13 @@ typedef struct Term {
   char *directory;
   bool directory_changed;
 
+  /* the size of dirs almost = window height,value = directory of that line */
+  char **dirs;
+  int dirs_len;
+
   int width, height;
   int height_resize;
+  bool resizing;
 
   int pty_fd;
 } Term;
@@ -98,6 +105,9 @@ emacs_value Fvterm_write_input(emacs_env *env, ptrdiff_t nargs,
 emacs_value Fvterm_set_size(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
                             void *data);
 emacs_value Fvterm_set_pty_name(emacs_env *env, ptrdiff_t nargs,
+                                emacs_value args[], void *data);
+
+emacs_value Fvterm_get_pwd(emacs_env *env, ptrdiff_t nargs,
                                 emacs_value args[], void *data);
 
 int emacs_module_init(struct emacs_runtime *ert);

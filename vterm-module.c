@@ -25,6 +25,10 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
       // Recycle old row if it's the right size
       sbrow = term->sb_buffer[term->sb_current - 1];
     } else {
+      if (term->sb_buffer[term->sb_current - 1]->directory != NULL) {
+        free(term->sb_buffer[term->sb_current - 1]->directory);
+        term->sb_buffer[term->sb_current - 1]->directory = NULL;
+      }
       free(term->sb_buffer[term->sb_current - 1]);
     }
 
@@ -41,6 +45,28 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
   if (!sbrow) {
     sbrow = malloc(sizeof(ScrollbackLine) + c * sizeof(sbrow->cells[0]));
     sbrow->cols = c;
+    sbrow->directory = NULL;
+  }
+  if (sbrow->directory != NULL) {
+    free(sbrow->directory);
+  }
+  sbrow->directory = term->dirs[0];
+  for (int i = 0; i < term->dirs_len - 1; i++) {
+    term->dirs[i] = term->dirs[1 + i];
+  }
+  if (term->resizing) {
+    /* pushed by window height decr */
+    if (term->dirs[term->dirs_len - 1] != NULL) {
+      /* do not need free here ,it is reused ,we just need set null */
+      term->dirs[term->dirs_len - 1] = NULL;
+    }
+    term->dirs_len--;
+  } else {
+    if (term->dirs[term->dirs_len - 1] != NULL) {
+      char *dir = malloc(1 + strlen(term->dirs[term->dirs_len - 1]));
+      strcpy(dir, term->dirs[term->dirs_len - 1]);
+      term->dirs[term->dirs_len - 1] = dir;
+    }
   }
 
   // New row is added at the start of the storage buffer.
@@ -97,7 +123,16 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
     cells[col].width = 1;
   }
 
+  char **dirs = malloc(sizeof(char *) * (term->dirs_len + 1));
+
+  for (int i = 0; i < term->dirs_len; i++) {
+    dirs[i + 1] = term->dirs[i];
+  }
+  dirs[0] = sbrow->directory;
   free(sbrow);
+  term->dirs_len += 1;
+  free(term->dirs);
+  term->dirs = dirs;
 
   return 1;
 }
@@ -128,6 +163,15 @@ static void fetch_cell(Term *term, int row, int col, VTermScreenCell *cell) {
   }
 }
 
+static char *get_row_directory(Term *term, int row) {
+  if (row < 0) {
+    ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
+    return sbrow->directory;
+    /* return term->dirs[0]; */
+  } else {
+    return term->dirs[row];
+  }
+}
 static bool is_eol(Term *term, int end_col, int row, int col) {
   /* This cell is EOL if this and every cell to the right is black */
   if (row >= 0) {
@@ -227,7 +271,6 @@ static void refresh_lines(Term *term, emacs_env *env, int start_row,
 
   return;
 }
-
 // Refresh the screen (visible part of the buffer when the terminal is
 // focused) of a invalidated terminal
 static void refresh_screen(Term *term, emacs_env *env) {
@@ -260,9 +303,37 @@ static int term_resize(int rows, int cols, void *user_data) {
   Term *term = (Term *)user_data;
   term->invalid_start = 0;
   term->invalid_end = rows;
+
+  /* if rows=term->dirs_len, that means term_sb_pop already resize term->dirs */
+  /* if rows<term->dirs_len, term_sb_push would resize term->dirs there */
+  /* we noly need to take care of rows>term->height */
+
+  if (rows > term->height) {
+    if (rows > term->dirs_len) {
+      char **directorys = term->dirs;
+      term->dirs = malloc(sizeof(char *) * rows);
+      for (int i = 0; i < term->dirs_len; i++) {
+        term->dirs[i] = directorys[i];
+      }
+      for (int i = term->dirs_len; i < rows; i++) {
+        if (term->dirs[term->dirs_len - 1] != NULL) {
+          char *dir = malloc(1 + strlen(term->dirs[term->dirs_len - 1]));
+          strcpy(dir, term->dirs[term->dirs_len - 1]);
+          term->dirs[i] = dir;
+        } else {
+          term->dirs[i] = NULL;
+        }
+      }
+      term->dirs_len = rows;
+      free(directorys);
+    }
+  }
+
   term->width = cols;
   term->height = rows;
+
   invalidate_terminal(term, -1, -1);
+  term->resizing = false;
 
   return 1;
 }
@@ -656,6 +727,10 @@ static void term_process_key(Term *term, unsigned char *key, size_t len,
 void term_finalize(void *object) {
   Term *term = (Term *)object;
   for (int i = 0; i < term->sb_current; i++) {
+    if (term->sb_buffer[i]->directory != NULL) {
+      free(term->sb_buffer[i]->directory);
+      term->sb_buffer[i]->directory = NULL;
+    }
     free(term->sb_buffer[i]);
   }
   if (term->title) {
@@ -666,6 +741,12 @@ void term_finalize(void *object) {
   if (term->directory) {
     free(term->directory);
     term->directory = NULL;
+  }
+  for (int i = 0; i < term->dirs_len; i++) {
+    if (term->dirs[i] != NULL) {
+      free(term->dirs[i]);
+      term->dirs[i] = NULL;
+    }
   }
 
   if (term->pty_fd > 0) {
@@ -693,6 +774,13 @@ static int osc_callback(const char *command, size_t cmdlen, void *user) {
     term->directory = malloc(cmdlen - 4 + 1);
     strcpy(term->directory, &buffer[4]);
     term->directory_changed = true;
+    for (int i = term->cursor.row; i < term->dirs_len; i++) {
+      if (term->dirs[i] != NULL) {
+        free(term->dirs[i]);
+      }
+      term->dirs[i] = malloc(cmdlen - 4 + 1);
+      strcpy(term->dirs[i], &buffer[4]);
+    }
     return 1;
   }
   return 0;
@@ -743,14 +831,23 @@ emacs_value Fvterm_new(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
   }
   term->linenum = term->height;
   term->linenum_added = 0;
+  term->resizing = false;
 
   term->pty_fd = -1;
 
   term->title = NULL;
   term->title_changed = false;
 
+  term->cursor.row = 0;
+  term->cursor.col = 0;
   term->directory = NULL;
   term->directory_changed = false;
+
+  term->dirs = malloc(sizeof(char *) * rows);
+  term->dirs_len = rows;
+  for (int i = 0; i < rows; i++) {
+    term->dirs[i] = NULL;
+  }
 
   return env->make_user_ptr(env, term_finalize, term);
 }
@@ -819,6 +916,7 @@ emacs_value Fvterm_set_size(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
         term->linenum_added = rows - term->height - term->sb_current;
       }
     }
+    term->resizing = true;
     vterm_set_size(term->vt, rows, cols);
     vterm_screen_flush_damage(term->vts);
 
@@ -841,6 +939,15 @@ emacs_value Fvterm_set_pty_name(emacs_env *env, ptrdiff_t nargs,
     term->pty_fd = open(filename, O_RDONLY);
   }
   return Qnil;
+}
+emacs_value Fvterm_get_pwd(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
+                           void *data) {
+  Term *term = env->get_user_ptr(env, args[0]);
+  int linenum = env->extract_integer(env, args[1]);
+  int row = linenr_to_row(term, linenum);
+  char *dir = get_row_directory(term, row);
+
+  return env->make_string(env, dir, strlen(dir));
 }
 
 int emacs_module_init(struct emacs_runtime *ert) {
@@ -927,6 +1034,9 @@ int emacs_module_init(struct emacs_runtime *ert) {
   fun = env->make_function(env, 2, 2, Fvterm_set_pty_name,
                            "Sets the name of the pty.", NULL);
   bind_function(env, "vterm--set-pty-name", fun);
+  fun = env->make_function(env, 2, 2, Fvterm_get_pwd,
+                           "Get the working directory of at line n.", NULL);
+  bind_function(env, "vterm--get-pwd-raw", fun);
 
   provide(env, "vterm-module");
 
