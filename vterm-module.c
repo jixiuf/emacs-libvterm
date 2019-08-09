@@ -51,9 +51,8 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
     free(sbrow->directory);
   }
   sbrow->directory = term->dirs[0];
-  for (int i = 0; i < term->dirs_len - 1; i++) {
-    term->dirs[i] = term->dirs[1 + i];
-  }
+  memmove(term->dirs, term->dirs + 1,
+          sizeof(term->dirs[0]) * (term->dirs_len - 1));
   if (term->resizing) {
     /* pushed by window height decr */
     if (term->dirs[term->dirs_len - 1] != NULL) {
@@ -125,9 +124,7 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
 
   char **dirs = malloc(sizeof(char *) * (term->dirs_len + 1));
 
-  for (int i = 0; i < term->dirs_len; i++) {
-    dirs[i + 1] = term->dirs[i];
-  }
+  memmove(dirs + 1, term->dirs, sizeof(term->dirs[0]) * term->dirs_len);
   dirs[0] = sbrow->directory;
   free(sbrow);
   term->dirs_len += 1;
@@ -312,9 +309,8 @@ static int term_resize(int rows, int cols, void *user_data) {
     if (rows > term->dirs_len) {
       char **directorys = term->dirs;
       term->dirs = malloc(sizeof(char *) * rows);
-      for (int i = 0; i < term->dirs_len; i++) {
-        term->dirs[i] = directorys[i];
-      }
+      memmove(term->dirs, directorys, sizeof(directorys[0]) * term->dirs_len);
+
       for (int i = term->dirs_len; i < rows; i++) {
         if (term->dirs[term->dirs_len - 1] != NULL) {
           char *dir = malloc(1 + strlen(term->dirs[term->dirs_len - 1]));
