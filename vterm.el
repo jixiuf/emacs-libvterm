@@ -244,9 +244,17 @@ If nil, never delay")
            :connection-type 'pty
            :filter #'vterm--filter
            :sentinel (when vterm-exit-functions #'vterm--sentinel))))
-  (vterm--set-pty-name vterm--term (process-tty-name vterm--process))
-  (compilation-shell-minor-mode 1)
-  (setq next-error-function 'vterm-next-error-function))
+  (vterm--set-pty-name vterm--term (process-tty-name vterm--process)))
+
+(defun vterm--compilation-setup ()
+  "function to setup `compilation-shell-minor-mode' for vterm.
+`'compilation-shell-minor-mode' would change the value of
+local variable `next-error-function',so we should call this function in
+`compilation-shell-minor-mode-hook'."
+  (when (eq major-mode 'vterm-mode)
+    (setq next-error-function 'vterm-next-error-function)))
+
+(add-hook 'compilation-shell-minor-mode-hook #'vterm--compilation-setup)
 
 ;;;###autoload
 (defun vterm-next-error-function (n &optional reset)
