@@ -10,6 +10,21 @@
 #include <unistd.h>
 #include <vterm.h>
 
+static LineInfo *alloc_lineinfo() {
+  LineInfo *info = malloc(sizeof(LineInfo));
+  info->directory = NULL;
+  return info;
+}
+void free_lineinfo(LineInfo *line) {
+  if (line == NULL) {
+    return;
+  }
+  if (line->directory != NULL) {
+    free(line->directory);
+    line->directory = NULL;
+  }
+  free(line);
+}
 static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
   Term *term = (Term *)data;
 
@@ -25,9 +40,9 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
       // Recycle old row if it's the right size
       sbrow = term->sb_buffer[term->sb_current - 1];
     } else {
-      if (term->sb_buffer[term->sb_current - 1]->directory != NULL) {
-        free(term->sb_buffer[term->sb_current - 1]->directory);
-        term->sb_buffer[term->sb_current - 1]->directory = NULL;
+      if (term->sb_buffer[term->sb_current - 1]->info != NULL) {
+        free_lineinfo(term->sb_buffer[term->sb_current - 1]->info);
+        term->sb_buffer[term->sb_current - 1]->info = NULL;
       }
       free(term->sb_buffer[term->sb_current - 1]);
     }
@@ -45,26 +60,30 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
   if (!sbrow) {
     sbrow = malloc(sizeof(ScrollbackLine) + c * sizeof(sbrow->cells[0]));
     sbrow->cols = c;
-    sbrow->directory = NULL;
+    sbrow->info = NULL;
   }
-  if (sbrow->directory != NULL) {
-    free(sbrow->directory);
+  if (sbrow->info != NULL) {
+    free_lineinfo(sbrow->info);
   }
-  sbrow->directory = term->dirs[0];
-  memmove(term->dirs, term->dirs + 1,
-          sizeof(term->dirs[0]) * (term->dirs_len - 1));
+  sbrow->info = term->lines[0];
+  memmove(term->lines, term->lines + 1,
+          sizeof(term->lines[0]) * (term->lines_len - 1));
   if (term->resizing) {
     /* pushed by window height decr */
-    if (term->dirs[term->dirs_len - 1] != NULL) {
+    if (term->lines[term->lines_len - 1] != NULL) {
       /* do not need free here ,it is reused ,we just need set null */
-      term->dirs[term->dirs_len - 1] = NULL;
+      term->lines[term->lines_len - 1] = NULL;
     }
-    term->dirs_len--;
+    term->lines_len--;
   } else {
-    if (term->dirs[term->dirs_len - 1] != NULL) {
-      char *dir = malloc(1 + strlen(term->dirs[term->dirs_len - 1]));
-      strcpy(dir, term->dirs[term->dirs_len - 1]);
-      term->dirs[term->dirs_len - 1] = dir;
+    LineInfo *lastline = term->lines[term->lines_len - 1];
+    if (lastline != NULL) {
+      LineInfo *line = alloc_lineinfo();
+      if (lastline->directory != NULL) {
+        line->directory = malloc(1 + strlen(lastline->directory));
+        strcpy(line->directory, lastline->directory);
+      }
+      term->lines[term->lines_len - 1] = line;
     }
   }
 
@@ -122,14 +141,14 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
     cells[col].width = 1;
   }
 
-  char **dirs = malloc(sizeof(char *) * (term->dirs_len + 1));
+  LineInfo **lines = malloc(sizeof(LineInfo *) * (term->lines_len + 1));
 
-  memmove(dirs + 1, term->dirs, sizeof(term->dirs[0]) * term->dirs_len);
-  dirs[0] = sbrow->directory;
+  memmove(lines + 1, term->lines, sizeof(term->lines[0]) * term->lines_len);
+  lines[0] = sbrow->info;
   free(sbrow);
-  term->dirs_len += 1;
-  free(term->dirs);
-  term->dirs = dirs;
+  term->lines_len += 1;
+  free(term->lines);
+  term->lines = lines;
 
   return 1;
 }
@@ -163,10 +182,19 @@ static void fetch_cell(Term *term, int row, int col, VTermScreenCell *cell) {
 static char *get_row_directory(Term *term, int row) {
   if (row < 0) {
     ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
-    return sbrow->directory;
+    return sbrow->info->directory;
     /* return term->dirs[0]; */
   } else {
-    return term->dirs[row];
+    return term->lines[row]->directory;
+  }
+}
+static LineInfo *get_lineinfo(Term *term, int row) {
+  if (row < 0) {
+    ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
+    return sbrow->info;
+    /* return term->dirs[0]; */
+  } else {
+    return term->lines[row];
   }
 }
 static bool is_eol(Term *term, int end_col, int row, int col) {
@@ -301,27 +329,34 @@ static int term_resize(int rows, int cols, void *user_data) {
   term->invalid_start = 0;
   term->invalid_end = rows;
 
-  /* if rows=term->dirs_len, that means term_sb_pop already resize term->dirs */
-  /* if rows<term->dirs_len, term_sb_push would resize term->dirs there */
+  /* if rows=term->lines_len, that means term_sb_pop already resize term->lines
+   */
+  /* if rows<term->lines_len, term_sb_push would resize term->lines there */
   /* we noly need to take care of rows>term->height */
 
   if (rows > term->height) {
-    if (rows > term->dirs_len) {
-      char **directorys = term->dirs;
-      term->dirs = malloc(sizeof(char *) * rows);
-      memmove(term->dirs, directorys, sizeof(directorys[0]) * term->dirs_len);
+    if (rows > term->lines_len) {
+      LineInfo **infos = term->lines;
+      term->lines = malloc(sizeof(LineInfo *) * rows);
+      memmove(term->lines, infos, sizeof(infos[0]) * term->lines_len);
 
-      for (int i = term->dirs_len; i < rows; i++) {
-        if (term->dirs[term->dirs_len - 1] != NULL) {
-          char *dir = malloc(1 + strlen(term->dirs[term->dirs_len - 1]));
-          strcpy(dir, term->dirs[term->dirs_len - 1]);
-          term->dirs[i] = dir;
+      LineInfo *lastline = term->lines[term->lines_len - 1];
+      for (int i = term->lines_len; i < rows; i++) {
+        if (lastline != NULL) {
+          LineInfo *line = alloc_lineinfo();
+          if (lastline->directory != NULL) {
+            line->directory =
+                malloc(1 + strlen(term->lines[term->lines_len - 1]->directory));
+            strcpy(line->directory,
+                   term->lines[term->lines_len - 1]->directory);
+          }
+          term->lines[i] = line;
         } else {
-          term->dirs[i] = NULL;
+          term->lines[i] = NULL;
         }
       }
-      term->dirs_len = rows;
-      free(directorys);
+      term->lines_len = rows;
+      free(infos);
     }
   }
 
@@ -723,9 +758,9 @@ static void term_process_key(Term *term, unsigned char *key, size_t len,
 void term_finalize(void *object) {
   Term *term = (Term *)object;
   for (int i = 0; i < term->sb_current; i++) {
-    if (term->sb_buffer[i]->directory != NULL) {
-      free(term->sb_buffer[i]->directory);
-      term->sb_buffer[i]->directory = NULL;
+    if (term->sb_buffer[i]->info != NULL) {
+      free_lineinfo(term->sb_buffer[i]->info);
+      term->sb_buffer[i]->info = NULL;
     }
     free(term->sb_buffer[i]);
   }
@@ -738,10 +773,10 @@ void term_finalize(void *object) {
     free(term->directory);
     term->directory = NULL;
   }
-  for (int i = 0; i < term->dirs_len; i++) {
-    if (term->dirs[i] != NULL) {
-      free(term->dirs[i]);
-      term->dirs[i] = NULL;
+  for (int i = 0; i < term->lines_len; i++) {
+    if (term->lines[i] != NULL) {
+      free_lineinfo(term->lines[i]);
+      term->lines[i] = NULL;
     }
   }
 
@@ -770,12 +805,17 @@ static int osc_callback(const char *command, size_t cmdlen, void *user) {
     term->directory = malloc(cmdlen - 4 + 1);
     strcpy(term->directory, &buffer[4]);
     term->directory_changed = true;
-    for (int i = term->cursor.row; i < term->dirs_len; i++) {
-      if (term->dirs[i] != NULL) {
-        free(term->dirs[i]);
+
+    for (int i = term->cursor.row; i < term->lines_len; i++) {
+      if (term->lines[i] == NULL) {
+        term->lines[i] = alloc_lineinfo();
       }
-      term->dirs[i] = malloc(cmdlen - 4 + 1);
-      strcpy(term->dirs[i], &buffer[4]);
+
+      if (term->lines[i]->directory != NULL) {
+        free(term->lines[i]->directory);
+      }
+      term->lines[i]->directory = malloc(cmdlen - 4 + 1);
+      strcpy(term->lines[i]->directory, &buffer[4]);
     }
     return 1;
   }
@@ -839,10 +879,10 @@ emacs_value Fvterm_new(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
   term->directory = NULL;
   term->directory_changed = false;
 
-  term->dirs = malloc(sizeof(char *) * rows);
-  term->dirs_len = rows;
+  term->lines = malloc(sizeof(LineInfo *) * rows);
+  term->lines_len = rows;
   for (int i = 0; i < rows; i++) {
-    term->dirs[i] = NULL;
+    term->lines[i] = NULL;
   }
 
   return env->make_user_ptr(env, term_finalize, term);

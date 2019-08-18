@@ -17,12 +17,17 @@ int plugin_is_GPL_compatible;
 #define MAX(X, Y) ((X) > (Y) ? (X) : (Y))
 #endif
 
+typedef struct LineInfo {
+  char *directory; /* working directory */
+
+} LineInfo;
+
 typedef struct ScrollbackLine {
   size_t cols;
-  char *directory;
+  LineInfo *info;
   VTermScreenCell cells[];
-
 } ScrollbackLine;
+
 
 enum {
   VTERM_PROP_CURSOR_BLOCK = VTERM_PROP_CURSORSHAPE_BLOCK,
@@ -67,8 +72,8 @@ typedef struct Term {
   bool directory_changed;
 
   /* the size of dirs almost = window height,value = directory of that line */
-  char **dirs;
-  int dirs_len;
+  LineInfo **lines;
+  int lines_len;
 
   int width, height;
   int height_resize;
