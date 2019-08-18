@@ -125,6 +125,15 @@ emacs_value Fvterm_get_prompt_point(emacs_env *env, ptrdiff_t nargs,
 emacs_value Fvterm_reset_cursor_point(emacs_env *env, ptrdiff_t nargs,
                                       emacs_value args[], void *data);
 
+
+emacs_value Fvterm_previous_prompt(emacs_env *env, ptrdiff_t nargs,
+                                   emacs_value args[], void *data);
+emacs_value Fvterm_next_prompt(emacs_env *env, ptrdiff_t nargs,
+                               emacs_value args[], void *data);
+
+emacs_value Fvterm_get_cmd_end_point(emacs_env *env, ptrdiff_t nargs,
+                                     emacs_value args[], void *data);
+
 int emacs_module_init(struct emacs_runtime *ert);
 
 #endif /* VTERM_MODULE_H */

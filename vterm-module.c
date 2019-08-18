@@ -1053,6 +1053,49 @@ emacs_value Fvterm_get_icrnl(emacs_env *env, ptrdiff_t nargs,
   return Qnil;
 }
 
+emacs_value Fvterm_previous_prompt(emacs_env *env, ptrdiff_t nargs,
+                                   emacs_value args[], void *data) {
+  Term *term = env->get_user_ptr(env, args[0]);
+  int linenum = env->extract_integer(env, args[1]);
+  if (linenum == 1) {
+    return Qnil;
+  }
+  if (linenum >= term->linenum) {
+    linenum = term->linenum;
+  }
+  for (int l = linenum - 1; l >= 1; l--) {
+    int cur_row = linenr_to_row(term, l);
+    LineInfo *info = get_lineinfo(term, cur_row);
+    if (info != NULL && info->prompt_col >= 0) {
+      goto_line(env, l);
+      size_t offset = get_col_offset(term, cur_row, info->prompt_col);
+      forward_char(env, env->make_integer(env, info->prompt_col - offset));
+
+      return Qt;
+    }
+  }
+  return Qnil;
+}
+emacs_value Fvterm_next_prompt(emacs_env *env, ptrdiff_t nargs,
+                               emacs_value args[], void *data) {
+  Term *term = env->get_user_ptr(env, args[0]);
+  int linenum = env->extract_integer(env, args[1]);
+  if (linenum >= term->linenum) {
+    return Qnil;
+  }
+  for (int l = linenum + 1; l <= term->linenum; l++) {
+    int cur_row = linenr_to_row(term, l);
+    LineInfo *info = get_lineinfo(term, cur_row);
+    if (info != NULL && info->prompt_col >= 0) {
+      goto_line(env, l);
+      size_t offset = get_col_offset(term, cur_row, info->prompt_col);
+      forward_char(env, env->make_integer(env, info->prompt_col - offset));
+      return Qt;
+    }
+  }
+  return Qnil;
+}
+
 emacs_value Fvterm_get_prompt_point(emacs_env *env, ptrdiff_t nargs,
                                     emacs_value args[], void *data) {
   Term *term = env->get_user_ptr(env, args[0]);
@@ -1172,6 +1215,12 @@ int emacs_module_init(struct emacs_runtime *ert) {
   fun = env->make_function(env, 2, 2, Fvterm_get_pwd,
                            "Get the working directory of at line n.", NULL);
   bind_function(env, "vterm--get-pwd-raw", fun);
+  fun = env->make_function(env, 2, 2, Fvterm_previous_prompt,
+                           "Goto previous prompt.", NULL);
+  bind_function(env, "vterm--previous-prompt", fun);
+  fun = env->make_function(env, 2, 2, Fvterm_next_prompt, "Goto next prompt.",
+                           NULL);
+  bind_function(env, "vterm--next-prompt", fun);
   fun = env->make_function(env, 2, 2, Fvterm_get_prompt_point,
                            "Get the end postion of current prompt.", NULL);
   bind_function(env, "vterm--get-prompt-point-internal", fun);
