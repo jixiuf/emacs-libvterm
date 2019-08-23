@@ -98,8 +98,35 @@ is ansi color 8-15.
 - vterm-color-magenta
 - vterm-color-cyan
 - vterm-color-white
+## Shell Integration
+Vterm Shell Integration feature is made possible by proprietary escape sequences.
 
-## Directory tracking
+The goal of the proprietary escape sequences is to mark up a shell's output
+with semantic information about where the prompt begins and ends, where
+the user-entered command begins and ends.
+
+With this feature, you can jump to the next/previous prompt position  by
+`vterm-next-prompt` and `vterm-previous-prompt`.
+And also you can save the killed line to kill ring when you press `C-k` in the vterm buffer.
+
+### Mark up where the user-entered command ends.
+
+For `zsh` put this in your `.zshrc`:
+```zsh
+autoload -U add-zsh-hook
+add-zsh-hook -Uz preexec(){print -Pn "\e]51;B\e\\";}
+```
+
+For bash
+
+Please install  [bash-preexec](https://github.com/rcaloras/bash-preexec) 
+```bash
+test -e "${HOME}/.bash-preexec.sh" && source "${HOME}/.bash-preexec.sh"
+preexec() { printf "\e]51;B\e\\"; }
+
+```
+
+### Directory tracking and Mark up the prompt .
 
 The `default-directory` would change when you change your working directory.
 
@@ -111,10 +138,13 @@ via `next-error` and `previous-error` like in a `compilation-mode` buffer.
 For `zsh` put this in your `.zshrc`:
 
 ```zsh
-vterm_prompt() {
+vterm_prompt_begin() {
+      print -Pn "\e]51;C\e\\"
+}
+vterm_prompt_end() {
       print -Pn "\e]51;A$(pwd)\e\\"
 }
-PROMPT=$PROMPT'%{$(vterm_prompt)%}'
+PROMPT='%{$(vterm_prompt_begin)%}'$PROMPT'%{$(vterm_prompt_end)%}'
 
 ```
 
@@ -123,22 +153,39 @@ If you want to use `compilation-shell-minor-mode`, please use `PROMPT` and not `
 For bash 
 
 ```bash
-PS1='\$ \[\e]51;A$(pwd)\e\\\]'
+vterm_prompt_begin(){
+  printf "\e]51;C\e\\"
+}
+vterm_prompt_end(){
+  printf "\e]51;A$(pwd)\e\\"
+}
+PS1='$(vterm_prompt_begin)'$PS1'$(vterm_prompt_end)'
 ```
-make sure the `\[\e]51;A$(pwd)\e\\\]` is at the end of your prompt
+make sure the `\[\e]51;C\e\\\]`  is at the begining of your prompt and
+`\[\e]51;A$(pwd)\e\\\]` is at the end of your prompt.
 
-## Remote directory tracking
+### Remote directory tracking and Mark up the prompt .
 
-Put this in your *remote* .zshrc:
+For bash put this in your *remote* .bashrc:
 ```bash
-PS1='\$ \[\e]51;A$(whoami)@$(hostname):$(pwd)\e\\\]'
+vterm_prompt_begin(){
+  printf "\e]51;C\e\\"
+}
+vterm_prompt_end(){
+  printf "\e]51;A$(whoami)@$(hostname):$(pwd)\e\\"
+}
+PS1='$(vterm_prompt_begin)'$PS1'$(vterm_prompt_end)'
 ```
 
+For zsh put this in your *remote* .zshrc:
 ```zsh
-vterm_prompt() {
+vterm_prompt_begin() {
+      print -Pn "\e]51;C\e\\"
+}
+vterm_prompt_end() {
     print -Pn "\e]51;A$(whoami)@$(hostname):$(pwd)\e\\"
 }
-PROMPT=$PROMPT'%{$(vterm_prompt)%}'
+PROMPT='%{$(vterm_prompt_begin)%}'$PROMPT'%{$(vterm_prompt_end)%}'
 
 ```
 
