@@ -307,6 +307,7 @@ This is the value of `next-error-function' in Compilation buffers."
 (define-key vterm-mode-map [remap yank-pop]            #'vterm-yank-pop)
 (define-key vterm-mode-map (kbd "C-SPC")               #'vterm--self-insert)
 (define-key vterm-mode-map (kbd "C-_")                 #'vterm--self-insert)
+(define-key vterm-mode-map (kbd "C-k")                 #'vterm-kill-line)
 (define-key vterm-mode-map (kbd "C-/")                 #'vterm-undo)
 (define-key vterm-mode-map (kbd "M-.")                 #'vterm-send-meta-dot)
 (define-key vterm-mode-map (kbd "M-,")                 #'vterm-send-meta-comma)
@@ -628,7 +629,7 @@ Argument INDEX index of color."
    vterm--term (line-number-at-pos)))
 
 
-(defun vterm-get-prompt-point ()
+(defun vterm--get-prompt-point ()
   "Get the position of the end of current prompt."
   (let (pt)
     (save-excursion
@@ -676,7 +677,7 @@ Argument INDEX index of color."
   (let ((cursor-point (vterm--get-cursor-point))
         (pt (point)))
     (kill-new (vterm-get-input-after-point))
-    (message "%d %d" pt cursor-point)
+    (message "The line is saved to kill ring.")
     (when (eq pt cursor-point)
       (vterm--self-insert))))
 
