@@ -19,8 +19,9 @@ int plugin_is_GPL_compatible;
 
 typedef struct LineInfo {
   char *directory; /* working directory */
-
   int prompt_col; /* end column of the prompt,if current line contains prompt */
+  int prompt_begin_col; /* begining column of the prompt,if current line contains prompt */
+  int cmd_col; /* end column of the command,if current line contains the cmd */
 } LineInfo;
 
 typedef struct ScrollbackLine {
@@ -83,6 +84,9 @@ typedef struct Term {
   bool resizing;
 
   int pty_fd;
+
+  int shell_integration;
+
 } Term;
 
 static bool compare_cells(VTermScreenCell *a, VTermScreenCell *b);

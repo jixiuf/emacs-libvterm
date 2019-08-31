@@ -363,6 +363,7 @@ This is the value of `next-error-function' in Compilation buffers."
 (define-key vterm-mode-map (kbd "C-SPC")               #'vterm--self-insert)
 (define-key vterm-mode-map (kbd "S-SPC")               #'vterm-send-space)
 (define-key vterm-mode-map (kbd "C-_")                 #'vterm--self-insert)
+(define-key vterm-mode-map (kbd "C-k")                 #'vterm-kill-line)
 (define-key vterm-mode-map (kbd "C-/")                 #'vterm-undo)
 (define-key vterm-mode-map (kbd "M-.")                 #'vterm-send-meta-dot)
 (define-key vterm-mode-map (kbd "M-,")                 #'vterm-send-meta-comma)
@@ -832,7 +833,7 @@ the called functions."
   (let ((cursor-point (vterm--get-cursor-point))
         (pt (point)))
     (kill-new (vterm-get-input-after-point))
-    (message "%d %d" pt cursor-point)
+    (message "The line is saved to kill ring.")
     (when (eq pt cursor-point)
       (vterm--self-insert))))
 
