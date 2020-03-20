@@ -233,6 +233,7 @@ color is used as ansi color 15."
 (defvar-local vterm--redraw-timer nil)
 (defvar-local vterm--redraw-immididately nil)
 (defvar-local vterm--linenum-remapping nil)
+(defvar-local vterm--buffer-content nil)
 
 (defvar vterm-timer-delay 0.1
   "Delay for refreshing the buffer after receiving updates from libvterm.
@@ -422,7 +423,20 @@ This is the value of `next-error-function' in Compilation buffers."
   (if vterm-copy-mode
       (progn                            ;enable vterm-copy-mode
         (use-local-map nil)
-        (vterm-send-stop))
+        (vterm-send-stop)
+        (setq inhibit-read-only t)
+        (unless vterm--buffer-content
+          (setq vterm--buffer-content (buffer-string))
+          (let ((marker (point-marker)))
+            (vterm--remove-fake-newlines)
+            (goto-char (marker-position marker))
+            )))
+    (setq inhibit-read-only nil)
+    (let ((inhibit-read-only t))
+      (when vterm--buffer-content
+        (erase-buffer)
+        (insert vterm--buffer-content)
+        (setq vterm--buffer-content nil)))
     (vterm-reset-cursor-point)
     (use-local-map vterm-mode-map)
     (vterm-send-start)))

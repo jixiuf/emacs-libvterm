@@ -259,8 +259,16 @@ static void refresh_lines(Term *term, emacs_env *env, int start_row,
   for (i = start_row; i < end_row; i++) {
 
     int newline = 0;
+    int isprompt = 0;
     for (j = 0; j < end_col; j++) {
       fetch_cell(term, i, j, &cell);
+      LineInfo *info = get_lineinfo(term, i);
+      if (info != NULL && info->prompt_col >= 0 && info->prompt_col - 1 == j) {
+        emacs_value text = render_text(env, term, buffer, length, &lastCell);
+        insert(env, text);
+        length = 0;
+        isprompt = 1;
+      }
 
       if (!compare_cells(&cell, &lastCell)) {
         emacs_value text = render_text(env, term, buffer, length, &lastCell);
@@ -292,6 +300,14 @@ static void refresh_lines(Term *term, emacs_env *env, int start_row,
         int w = cell.width - 1;
         offset += w;
         j = j + w;
+      }
+
+      if (isprompt) {
+        emacs_value text = render_text(env, term, buffer, length, &lastCell);
+        text = render_prompt(env, term, text);
+        insert(env, text);
+        length = 0;
+        isprompt = 0;
       }
     }
 
@@ -663,6 +679,17 @@ static emacs_value render_text(emacs_env *env, Term *term, char *buffer,
   }
 
   put_text_property(env, text, Qface, properties);
+
+  return text;
+}
+static emacs_value render_prompt(emacs_env *env, Term *term, emacs_value text) {
+
+  emacs_value properties;
+
+  properties =
+      list(env, (emacs_value[]){Qvterm_prompt, Qt, Qrear_nonsticky, Qt}, 4);
+
+  add_text_properties(env, text, properties);
 
   return text;
 }
@@ -1158,6 +1185,7 @@ int emacs_module_init(struct emacs_runtime *ert) {
       env->make_global_ref(env, env->intern(env, "vterm-line-wrap"));
   Qrear_nonsticky =
       env->make_global_ref(env, env->intern(env, "rear-nonsticky"));
+  Qvterm_prompt = env->make_global_ref(env, env->intern(env, "vterm-prompt"));
 
   Qface = env->make_global_ref(env, env->intern(env, "font-lock-face"));
   Qbox = env->make_global_ref(env, env->intern(env, "box"));
