@@ -89,10 +89,10 @@ jobs:
 
     - name: Compile vterm from Emacs
       if: ${{matrix.compile_from_elisp == 'yes'}}
-      run: bash makem.sh -vv --sandbox=$SANDBOX batch -- --eval "(require 'vterm)"
+      run: bash makem.sh -vv --sandbox=$SANDBOX batch -- -l vterm-module.so -l vterm.el --eval "(require 'vterm)"
 
     - name: Require vterm
-      run: bash makem.sh -vv --sandbox=$SANDBOX batch -- --eval "(require 'vterm)"
+      run: bash makem.sh -vv --sandbox=$SANDBOX batch -- -l vterm-module.so -l vterm.el --eval "(require 'vterm)"
 
     - name: Lint
       # We only need to lint once
