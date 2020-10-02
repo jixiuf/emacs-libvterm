@@ -86,6 +86,9 @@ jobs:
            cmake ..
            make
            ldd ../vterm-module.so
+    - name: Fix Libary not found
+      run: /sbin/ldconfig -v
+
 
     - name: Compile vterm from Emacs
       if: ${{matrix.compile_from_elisp == 'yes'}}
