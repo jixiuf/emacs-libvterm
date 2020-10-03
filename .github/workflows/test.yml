@@ -89,7 +89,7 @@ jobs:
            make
            ldd ../vterm-module.so
     - name: Fix Libary not found
-      run:  bash /sbin/ldconfig -v||echo "1"
+      run:  bash sudo /sbin/ldconfig -v||echo "1"
 
 
     - name: Compile vterm from Emacs
