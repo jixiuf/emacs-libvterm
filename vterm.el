@@ -551,6 +551,12 @@ Exceptions are defined by `vterm-keymap-exceptions'."
     (define-key map [remap xterm-paste]         #'vterm-yank)
     (define-key map [remap yank-pop]            #'vterm-yank-pop)
     (define-key map [remap mouse-yank-primary]  #'vterm-yank-primary)
+    (define-key map [down-mouse-1]              #'vterm-down-mouse)
+    (define-key map [drag-mouse-1]              #'vterm-down-mouse)
+    (define-key map [mouse-1]                   #'vterm-down-mouse)
+    (define-key map [C-down-mouse-1]            #'vterm-down-mouse)
+    (define-key map [C-mouse-1]                 #'vterm-down-mouse)
+
     (define-key map (kbd "C-SPC")               #'vterm--self-insert)
     (define-key map (kbd "S-SPC")               #'vterm-send-space)
     (define-key map (kbd "C-_")                 #'vterm--self-insert)
@@ -935,6 +941,35 @@ Optional argument PASTE-P paste-p."
     (when paste-p
       (vterm--update vterm--term "<end_paste>" nil nil nil)))
   (setq vterm--redraw-immididately t))
+
+(defun vterm-down-mouse (start-event)
+  (interactive "e")
+  (let* ((meta (member 'meta (event-modifiers start-event)))
+         (ctrl (member 'control (event-modifiers start-event)))
+         (shift (member 'shift (event-modifiers start-event)))
+         (drag (member 'drag (event-modifiers start-event)))
+         (down (member 'down (event-modifiers start-event)))
+         (start-posn (event-start start-event))
+         (start-point (posn-point start-posn))
+         (linenum (line-number-at-pos start-point))
+         (column (current-column))
+         (mouse-btn (event-basic-type (event-basic-type start-event)))
+         (button-int 0))
+    (cond
+     ( (eq mouse-btn 'mouse-1)
+      (setq button-int 1))
+     ((eq mouse-btn 'mouse-2)
+      (setq button-int 2))
+     ((eq mouse-btn 'mouse-3)
+      (setq button-int 3)))
+    (message "%d line=%d col=%d drag=%s down=%s " button-int linenum column drag down)
+    (vterm--update vterm--term "" shift meta ctrl linenum column button-int drag)
+    )
+
+  )
+;; (global-set-key [down-mouse-1]	'mouse-drag-region)
+;; (global-set-key [mouse-1]	'mouse-set-point)
+;; (global-set-key [drag-mouse-1]	'mouse-set-region)
 
 ;;; Internal
 

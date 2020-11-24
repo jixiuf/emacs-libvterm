@@ -70,6 +70,8 @@ typedef struct Term {
   bool is_invalidated;
 
   Cursor cursor;
+  int mouse_button; // which mouse button is pressed
+
   char *title;
   bool title_changed;
 

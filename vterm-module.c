@@ -1204,6 +1204,7 @@ emacs_value Fvterm_new(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
   term->title = NULL;
   term->title_changed = false;
 
+  term->mouse_button = 0;
   term->cursor.row = 0;
   term->cursor.col = 0;
   term->directory = NULL;
@@ -1241,7 +1242,30 @@ emacs_value Fvterm_update(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
       modifier = modifier | VTERM_MOD_CTRL;
 
     // Ignore the final zero byte
-    term_process_key(term, env, key, len - 1, modifier);
+    if (nargs > 7) {
+      int line = env->extract_integer(env, args[5]);
+      int column = env->extract_integer(env, args[6]);
+      int row = linenr_to_row(term, line);
+      int button = env->extract_integer(env, args[7]);
+      int drag = false;
+      if (env->is_not_nil(env, args[8]))
+        drag = true;
+      if (term->mouse_button && (term->mouse_button != button || !drag)) {
+        // release the previous button
+        vterm_mouse_button(term->vt, term->mouse_button, 0, modifier);
+        term->mouse_button = 0;
+      }
+      // move the mouse
+      vterm_mouse_move(term->vt, row, column, modifier);
+
+      if (!term->mouse_button) {
+        // press the button if not already pressed
+        vterm_mouse_button(term->vt, button, 1, modifier);
+        term->mouse_button = button;
+      }
+    }else{
+      term_process_key(term, env, key, len - 1, modifier);
+    }
   }
 
   // Flush output
@@ -1429,7 +1453,7 @@ int emacs_module_init(struct emacs_runtime *ert) {
       env->make_function(env, 4, 6, Fvterm_new, "Allocate a new vterm.", NULL);
   bind_function(env, "vterm--new", fun);
 
-  fun = env->make_function(env, 1, 5, Fvterm_update,
+  fun = env->make_function(env, 1, 9, Fvterm_update,
                            "Process io and update the screen.", NULL);
   bind_function(env, "vterm--update", fun);
 
