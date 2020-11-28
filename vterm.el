@@ -1361,5 +1361,33 @@ can find them and remove them."
 (defun vterm--delete-char(n &optional killflag)
   (funcall vterm--delete-char-function n killflag))
 
+(defun vterm-delete-region (start end)
+  "Delete the text between START and END for vterm. "
+  (if (vterm-goto-char start)
+      (cl-loop repeat (- end start) do
+               (vterm-send-delete))
+    (let ((inhibit-read-only nil))
+      (vterm--delete-region start end))))
+
+(defun vterm-goto-char (pos)
+  "Set point to POSITION for vterm.
+
+It will stopped when cursor can't move there,
+The return value is `t' when point moved successfully."
+  (vterm-reset-cursor-point)
+  (let ((moved t)
+        (pt (point)))
+    (while (and (> pos pt) moved)
+      (vterm-send-right)
+      (setq moved (not (= pt (point))))
+      (setq pt (point)))
+    (setq pt (point))
+    (setq moved t)
+    (while (and (< pos pt) moved)
+      (vterm-send-left)
+      (setq moved (not (= pt (point))))
+      (setq pt (point))))
+  (= pos (point)))
+
 (provide 'vterm)
 ;;; vterm.el ends here
