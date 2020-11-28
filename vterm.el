@@ -457,6 +457,10 @@ Only background is used."
 (defvar-local vterm--redraw-immididately nil)
 (defvar-local vterm--linenum-remapping nil)
 (defvar-local vterm--prompt-tracking-enabled-p nil)
+(defvar-local vterm--insert-function #'insert)
+(defvar-local vterm--delete-char-function #'delete-char)
+(defvar-local vterm--delete-region-function #'delete-region)
+
 
 (defvar vterm-timer-delay 0.1
   "Delay for refreshing the buffer after receiving updates from libvterm.
@@ -1115,10 +1119,10 @@ If option DELETE-WHOLE-LINE is non-nil, then this command kills
 the whole line including its terminating newline"
   (save-excursion
     (when (vterm--goto-line line-num)
-      (delete-region (point) (point-at-eol count))
+      (vterm--delete-region (point) (point-at-eol count))
       (when (and delete-whole-line
                  (looking-at "\n"))
-        (delete-char 1)))))
+        (vterm--delete-char 1)))))
 
 (defun vterm--goto-line (n)
   "Go to line N and return true on success.
@@ -1338,14 +1342,24 @@ can find them and remove them."
       (goto-char fake-newline)
       (cl-assert (eq ?\n (char-after)))
       (let ((inhibit-read-only t))
-        (delete-char 1)))))
+        (vterm--delete-char 1)))))
+
 
 (defun vterm--filter-buffer-substring (content)
   "Filter string CONTENT of fake/injected newlines."
   (with-temp-buffer
-    (insert content)
+    (vterm--insert content)
     (vterm--remove-fake-newlines)
     (buffer-string)))
+
+(defun vterm--delete-region(start end)
+  (funcall vterm--delete-region-function start end))
+
+(defun vterm--insert(&rest content)
+  (apply vterm--insert-function content))
+
+(defun vterm--delete-char(n &optional killflag)
+  (funcall vterm--delete-char-function n killflag))
 
 (provide 'vterm)
 ;;; vterm.el ends here
