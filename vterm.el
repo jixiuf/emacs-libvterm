@@ -445,6 +445,18 @@ Only background is used."
 
 ;;; Variables
 
+;; cl-letf does not work
+;; (cl-letf (((symbol-function #'delete-region) #'vterm-delete-region))
+;;   (call-interactively #'evil-delete)))
+;; so we add an advice for delete-region
+;; (defun vterm-evil-delete ()
+;;   "Provide similar behavior as `evil-delete'."
+;;   (interactive)
+;;   (let ((vterm-delete-region-advice-enable t))
+;;     (call-interactively #'evil-delete)))
+;;see https://www.gnu.org/software/emacs/manual/html_node/cl/Obsolete-Macros.html
+(defvar vterm-delete-region-advice-enable nil)
+
 (defvar vterm-color-palette
   [vterm-color-black
    vterm-color-red
@@ -998,8 +1010,27 @@ Provide similar behavior as `insert' for vterm."
     (if (vterm-goto-char start)
         (cl-loop repeat (- end start) do
                  (vterm-send-delete))
-      (let ((inhibit-read-only nil))
+      (let ((inhibit-read-only nil)
+            (vterm-delete-region-advice-enable nil))
         (vterm--delete-region start end)))))
+
+;; see vterm-delete-region-advice-enable
+(defun vterm--delete-region-ad (orig-fun &rest args)
+  (if (and (equal major-mode 'vterm-mode)
+           vterm--term
+           vterm-delete-region-advice-enable)
+      (let ((start (car args))
+            (end (nth 1 args))
+            ;; reset vterm-delete-region-advice-enable
+            (vterm-delete-region-advice-enable nil))
+        (if (vterm-goto-char start)
+            (cl-loop repeat (- end start) do
+                     (vterm-send-delete))
+          (let ((inhibit-read-only nil))
+            (apply orig-fun args))))
+    (apply orig-fun args)))
+
+(advice-add #'delete-region :around #'vterm--delete-region-ad)
 
 (defun vterm-goto-char (pos)
   "Set point to POSITION for vterm.
@@ -1214,10 +1245,11 @@ If option DELETE-WHOLE-LINE is non-nil, then this command kills
 the whole line including its terminating newline"
   (save-excursion
     (when (vterm--goto-line line-num)
-      (vterm--delete-region (point) (point-at-eol count))
-      (when (and delete-whole-line
-                 (looking-at "\n"))
-        (vterm--delete-char 1)))))
+      (let ((vterm-delete-region-advice-enable nil))
+        (vterm--delete-region (point) (point-at-eol count))
+        (when (and delete-whole-line
+                   (looking-at "\n"))
+          (vterm--delete-char 1))))))
 
 (defun vterm--goto-line (n)
   "Go to line N and return true on success.
