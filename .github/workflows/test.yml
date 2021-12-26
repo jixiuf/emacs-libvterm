@@ -55,7 +55,7 @@ jobs:
            make
            ldd ../vterm-module.so
     - name: Fix Libary not found
-      run:  sudo rm /etc/ld.so.cache;sudo /sbin/ldconfig -v | grep libvterm
+      run:  sudo /sbin/ldconfig
 
 
     - name: Compile vterm from Emacs
