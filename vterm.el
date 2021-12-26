@@ -1687,3 +1687,6 @@ can find them and remove them."
 ;; indent-tabs-mode: nil
 ;; End:
 ;;; vterm.el ends here
+
+;;; LocalWords: vterm libvterm CMake scrollback arg
+;;; LocalWords: zsh html tldp http whitelisted
