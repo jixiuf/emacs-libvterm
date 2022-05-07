@@ -1685,14 +1685,17 @@ More information see `vterm--prompt-tracking-enabled-p' and
       (when promp-pt
         (<= promp-pt (or pt (vterm--get-cursor-point)))))))
 
-(defun vterm-beginning-of-line ()
+(defun vterm-beginning-of-line (&optional arg)
   "Move point to the beginning of the line.
 
 Move the point to the first character after the shell prompt on this line.
 If the point is already there, move to the beginning of the line.
-Effectively toggle between the two positions."
-  (interactive)
-  (if (vterm--at-prompt-p)
+Effectively toggle between the two positions.
+If ARG is not nil, it will always move the point to the first character
+after the shell prompt on this line."
+  (interactive "P")
+  (if (and (vterm--at-prompt-p)
+           (not arg))
       (goto-char (vterm--get-beginning-of-line))
     (goto-char (max (or (vterm--get-prompt-point) 0)
                     (vterm--get-beginning-of-line)))))
