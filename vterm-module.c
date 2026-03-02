@@ -26,7 +26,7 @@ void free_lineinfo(LineInfo *line) {
   }
   free(line);
 }
-static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
+static int term_sb_push_impl(int cols, const VTermScreenCell *cells, bool continuation, void *data) {
   Term *term = (Term *)data;
 
   if (!term->sb_size) {
@@ -67,6 +67,7 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
     free_lineinfo(sbrow->info);
   }
   sbrow->info = term->lines[0];
+  sbrow->continuation = continuation;
   memmove(term->lines, term->lines + 1,
           sizeof(term->lines[0]) * (term->lines_len - 1));
   if (term->resizing &&
@@ -109,6 +110,16 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
 
   return 1;
 }
+
+static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
+  return term_sb_push_impl(cols, cells, false, data);
+}
+
+#ifndef VTermPushline4NotExists
+static int term_sb_push4(int cols, const VTermScreenCell *cells, bool continuation, void *data) {
+  return term_sb_push_impl(cols, cells, continuation, data);
+}
+#endif
 /// Scrollback pop handler (from pangoterm).
 ///
 /// @param cols
@@ -669,6 +680,9 @@ static VTermScreenCallbacks vterm_screen_callbacks = {
     .sb_popline = term_sb_pop,
 #if !defined(VTermSBClearNotExists)
     .sb_clear = term_sb_clear,
+#endif
+#if !defined(VTermPushline4NotExists)
+    .sb_pushline4 = term_sb_push4,
 #endif
 };
 
@@ -1253,6 +1267,9 @@ emacs_value Fvterm_new(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
 
   vterm_screen_reset(term->vts, 1);
   vterm_screen_set_callbacks(term->vts, &vterm_screen_callbacks, term);
+#ifndef VTermPushline4NotExists
+  vterm_screen_callbacks_has_pushline4(term->vts);
+#endif
   vterm_screen_set_damage_merge(term->vts, VTERM_DAMAGE_SCROLL);
   vterm_screen_enable_altscreen(term->vts, true);
 #ifndef VTermEnableReflowNotExists

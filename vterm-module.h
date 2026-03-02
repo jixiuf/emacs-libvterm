@@ -43,6 +43,7 @@ typedef struct LineInfo {
 
 typedef struct ScrollbackLine {
   size_t cols;
+  bool continuation;  // true if this line is a continuation of the previous line
   LineInfo *info;
   VTermScreenCell cells[];
 } ScrollbackLine;
