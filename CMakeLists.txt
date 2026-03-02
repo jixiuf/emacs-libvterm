@@ -51,6 +51,11 @@ if (USE_SYSTEM_LIBVTERM)
     if (${VTermSBClearExists} EQUAL "0")
       add_definitions(-DVTermSBClearNotExists)
     endif()
+    execute_process(COMMAND  grep -c "vterm_screen_enable_reflow" "${LIBVTERM_INCLUDE_DIR}/vterm.h" OUTPUT_VARIABLE VTermEnableReflowExists)
+    if (${VTermEnableReflowExists} EQUAL "0")
+      message(WARNING "System libvterm too old, reflow not supported")
+      add_definitions(-DVTermEnableReflowNotExists)
+    endif()
   else()
     message(STATUS "System libvterm not found: libvterm will be downloaded and compiled as part of the build process")
   endif()
@@ -73,7 +78,7 @@ else()
 
   ExternalProject_add(libvterm
     GIT_REPOSITORY https://github.com/Sbozzolo/libvterm-mirror.git
-    GIT_TAG 64f1775952dbe001e989f2ab679563b54f2fca55
+    GIT_TAG 1429c3fe77713683cdce31cfdcb35b6836548982
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ${LIBVTERM_BUILD_COMMAND} "CFLAGS='-fPIC'" "LDFLAGS='-static'"
     BUILD_IN_SOURCE ON
