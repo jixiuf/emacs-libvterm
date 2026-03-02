@@ -125,7 +125,7 @@ static int term_sb_push4(int cols, const VTermScreenCell *cells, bool continuati
 /// @param cols
 /// @param cells  VTerm state to update.
 /// @param data   Term
-static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
+static int term_sb_pop_impl(int cols, VTermScreenCell *cells, bool *continuation, void *data) {
   Term *term = (Term *)data;
 
   if (!term->sb_current) {
@@ -159,6 +159,12 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
 
   memmove(lines + 1, term->lines, sizeof(term->lines[0]) * term->lines_len);
   lines[0] = sbrow->info;
+  
+  // Return continuation information if requested
+  if (continuation) {
+    *continuation = sbrow->continuation;
+  }
+  
   free(sbrow);
   term->lines_len += 1;
   free(term->lines);
@@ -166,6 +172,16 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
 
   return 1;
 }
+
+static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
+  return term_sb_pop_impl(cols, cells, NULL, data);
+}
+
+#ifndef VTermPopline4NotExists
+static int term_sb_pop4(int cols, VTermScreenCell *cells, bool *continuation, void *data) {
+  return term_sb_pop_impl(cols, cells, continuation, data);
+}
+#endif
 
 static int term_sb_clear(void *data) {
   Term *term = (Term *)data;
@@ -683,6 +699,9 @@ static VTermScreenCallbacks vterm_screen_callbacks = {
 #endif
 #if !defined(VTermPushline4NotExists)
     .sb_pushline4 = term_sb_push4,
+#endif
+#if !defined(VTermPopline4NotExists)
+    .sb_popline4 = term_sb_pop4,
 #endif
 };
 

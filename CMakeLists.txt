@@ -61,6 +61,11 @@ if (USE_SYSTEM_LIBVTERM)
       message(WARNING "System libvterm too old, sb_pushline4 not supported")
       add_definitions(-DVTermPushline4NotExists)
     endif()
+    execute_process(COMMAND  grep -c "sb_popline4" "${LIBVTERM_INCLUDE_DIR}/vterm.h" OUTPUT_VARIABLE VTermPopline4Exists)
+    if (${VTermPopline4Exists} EQUAL "0")
+      message(WARNING "System libvterm too old, sb_popline4 not supported")
+      add_definitions(-DVTermPopline4NotExists)
+    endif()
   else()
     message(STATUS "System libvterm not found: libvterm will be downloaded and compiled as part of the build process")
   endif()
@@ -82,8 +87,9 @@ else()
   endif()
 
   ExternalProject_add(libvterm
-    GIT_REPOSITORY https://github.com/Sbozzolo/libvterm-mirror.git
-    GIT_TAG 1429c3fe77713683cdce31cfdcb35b6836548982
+    # GIT_REPOSITORY https://github.com/jixiuf/libvterm.git
+    GIT_REPOSITORY file:///home/jixiuf/repos/libvterm/.git
+    GIT_TAG HEAD
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ${LIBVTERM_BUILD_COMMAND} "CFLAGS='-fPIC'" "LDFLAGS='-static'"
     BUILD_IN_SOURCE ON
