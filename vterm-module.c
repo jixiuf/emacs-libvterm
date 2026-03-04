@@ -209,6 +209,234 @@ static int term_sb_clear(void *data) {
   return 0;
 }
 
+/* Count non-empty cells in a row */
+static size_t sb_line_popcount(VTermScreenCell *cells, size_t cols) {
+  size_t count = cols;
+  while (count > 0 && cells[count - 1].chars[0] == 0) {
+    count--;
+  }
+  return count;
+}
+
+/* Reflow scrollback buffer when terminal width changes.
+ * This function merges continuation lines and re-splits them at the new width. */
+static void reflow_scrollback(Term *term, int new_cols) {
+  if (!term->sb_current || !term->sb_size || new_cols <= 0) {
+    return;
+  }
+
+  int old_cols = term->width;
+  if (old_cols == new_cols) {
+    return;
+  }
+
+  /* First pass: collect all cells from scrollback into a flat buffer,
+   * tracking logical line boundaries (where continuation is false) */
+  
+  /* Count total cells and logical lines */
+  size_t total_cells = 0;
+  int logical_line_count = 0;
+  
+  for (int i = term->sb_current - 1; i >= 0; i--) {
+    ScrollbackLine *line = term->sb_buffer[i];
+    total_cells += line->cols;
+    if (!line->continuation) {
+      logical_line_count++;
+    }
+  }
+  
+  if (logical_line_count == 0) {
+    logical_line_count = 1;  /* At least one logical line */
+  }
+  
+  /* Allocate arrays to hold logical lines */
+  typedef struct {
+    VTermScreenCell *cells;
+    size_t cell_count;
+    size_t actual_width;  /* Non-empty cell count */
+    LineInfo *info;       /* LineInfo from first physical line of this logical line */
+  } LogicalLine;
+  
+  LogicalLine *logical_lines = malloc(sizeof(LogicalLine) * logical_line_count);
+  int ll_idx = 0;
+  
+  /* Build logical lines by iterating from oldest to newest (bottom to top of scrollback) */
+  VTermScreenCell *current_cells = NULL;
+  size_t current_capacity = 0;
+  size_t current_count = 0;
+  LineInfo *current_info = NULL;
+  
+  for (int i = term->sb_current - 1; i >= 0; i--) {
+    ScrollbackLine *line = term->sb_buffer[i];
+    
+    if (!line->continuation && current_cells != NULL) {
+      /* End of previous logical line, save it */
+      logical_lines[ll_idx].cells = current_cells;
+      logical_lines[ll_idx].cell_count = current_count;
+      logical_lines[ll_idx].actual_width = sb_line_popcount(current_cells, current_count);
+      logical_lines[ll_idx].info = current_info;
+      ll_idx++;
+      current_cells = NULL;
+      current_count = 0;
+      current_capacity = 0;
+      current_info = NULL;
+    }
+    
+    /* Append this line's cells to current logical line */
+    size_t new_count = current_count + line->cols;
+    if (new_count > current_capacity) {
+      current_capacity = new_count + 256;  /* Add some slack */
+      VTermScreenCell *new_cells = malloc(sizeof(VTermScreenCell) * current_capacity);
+      if (current_cells) {
+        memcpy(new_cells, current_cells, sizeof(VTermScreenCell) * current_count);
+        free(current_cells);
+      }
+      current_cells = new_cells;
+    }
+    memcpy(current_cells + current_count, line->cells, sizeof(VTermScreenCell) * line->cols);
+    current_count = new_count;
+    
+    /* Keep the LineInfo from the first physical line (which is the last one we see
+     * since we're iterating backwards) */
+    if (current_info == NULL) {
+      current_info = line->info;
+      line->info = NULL;  /* Transfer ownership */
+    }
+  }
+  
+  /* Save the last logical line */
+  if (current_cells != NULL) {
+    logical_lines[ll_idx].cells = current_cells;
+    logical_lines[ll_idx].cell_count = current_count;
+    logical_lines[ll_idx].actual_width = sb_line_popcount(current_cells, current_count);
+    logical_lines[ll_idx].info = current_info;
+    ll_idx++;
+  }
+  
+  int actual_ll_count = ll_idx;
+  
+  /* Free old scrollback */
+  for (int i = 0; i < term->sb_current; i++) {
+    if (term->sb_buffer[i]->info != NULL) {
+      free_lineinfo(term->sb_buffer[i]->info);
+    }
+    free(term->sb_buffer[i]);
+  }
+  
+  /* Second pass: split logical lines at new width and rebuild scrollback */
+  int new_sb_count = 0;
+  
+  /* Count how many physical lines we'll need */
+  for (int i = 0; i < actual_ll_count; i++) {
+    size_t width = logical_lines[i].actual_width;
+    int lines_needed = width > 0 ? (int)((width + new_cols - 1) / new_cols) : 1;
+    new_sb_count += lines_needed;
+  }
+  
+  /* Cap at sb_size */
+  if (new_sb_count > term->sb_size) {
+    new_sb_count = term->sb_size;
+  }
+  
+  /* Allocate new scrollback entries, filling from newest to oldest (index 0 is newest) */
+  ScrollbackLine **new_buffer = malloc(sizeof(ScrollbackLine *) * term->sb_size);
+  int new_idx = 0;
+  
+  /* Process logical lines from newest to oldest */
+  for (int i = actual_ll_count - 1; i >= 0 && new_idx < new_sb_count; i--) {
+    LogicalLine *ll = &logical_lines[i];
+    size_t width = ll->actual_width;
+    int lines_needed = width > 0 ? (int)((width + new_cols - 1) / new_cols) : 1;
+    
+    /* Create physical lines for this logical line, from last to first
+     * (since sb_buffer[0] is newest) */
+    size_t cell_offset = 0;
+    for (int j = 0; j < lines_needed && new_idx < new_sb_count; j++) {
+      size_t line_start = (size_t)j * new_cols;
+      size_t line_width = (width > line_start + new_cols) ? (size_t)new_cols : 
+                          (width > line_start ? width - line_start : 0);
+      
+      ScrollbackLine *sbrow = malloc(sizeof(ScrollbackLine) + (size_t)new_cols * sizeof(sbrow->cells[0]));
+      sbrow->cols = new_cols;
+      sbrow->continuation = (j > 0);  /* First line of logical line is not continuation */
+      sbrow->info = (j == 0) ? ll->info : NULL;  /* Only first physical line gets LineInfo */
+      
+      /* Copy cells */
+      for (int c = 0; c < new_cols; c++) {
+        if (c < (int)line_width && line_start + c < ll->cell_count) {
+          sbrow->cells[c] = ll->cells[line_start + c];
+        } else {
+          /* Empty cell */
+          memset(&sbrow->cells[c], 0, sizeof(VTermScreenCell));
+          sbrow->cells[c].width = 1;
+        }
+      }
+      
+      /* Insert at correct position - we're building from newest logical line,
+       * but within each logical line we go from first physical to last.
+       * sb_buffer[0] should be the last physical line of the newest logical line. */
+      /* Actually, we need to insert in reverse order within each logical line */
+    }
+    
+    /* Re-do: create lines in correct order for scrollback (index 0 = newest physical line) */
+    /* For the current logical line, generate physical lines and prepend to buffer */
+    int phys_lines_for_ll = lines_needed;
+    if (new_idx + phys_lines_for_ll > new_sb_count) {
+      phys_lines_for_ll = new_sb_count - new_idx;
+    }
+    
+    /* Create temp array for this logical line's physical lines */
+    ScrollbackLine **temp = malloc(sizeof(ScrollbackLine *) * phys_lines_for_ll);
+    for (int j = 0; j < phys_lines_for_ll; j++) {
+      size_t line_start = (size_t)j * new_cols;
+      size_t line_width = (width > line_start + new_cols) ? (size_t)new_cols :
+                          (width > line_start ? width - line_start : 0);
+      
+      ScrollbackLine *sbrow = malloc(sizeof(ScrollbackLine) + (size_t)new_cols * sizeof(sbrow->cells[0]));
+      sbrow->cols = new_cols;
+      sbrow->continuation = (j > 0);
+      sbrow->info = (j == 0) ? ll->info : NULL;
+      
+      for (int c = 0; c < new_cols; c++) {
+        if (c < (int)line_width && line_start + c < ll->cell_count) {
+          sbrow->cells[c] = ll->cells[line_start + c];
+        } else {
+          memset(&sbrow->cells[c], 0, sizeof(VTermScreenCell));
+          sbrow->cells[c].width = 1;
+        }
+      }
+      temp[j] = sbrow;
+    }
+    
+    /* Insert in reverse order so newest physical line is at lower index */
+    for (int j = phys_lines_for_ll - 1; j >= 0; j--) {
+      new_buffer[new_idx++] = temp[j];
+    }
+    free(temp);
+    
+    /* Clear info pointer since we transferred ownership */
+    ll->info = NULL;
+  }
+  
+  /* Free logical lines */
+  for (int i = 0; i < actual_ll_count; i++) {
+    free(logical_lines[i].cells);
+    if (logical_lines[i].info) {
+      free_lineinfo(logical_lines[i].info);
+    }
+  }
+  free(logical_lines);
+  
+  /* Replace scrollback buffer */
+  free(term->sb_buffer);
+  term->sb_buffer = new_buffer;
+  term->sb_current = new_idx;
+  
+  /* Reset pending counts since we've restructured everything */
+  term->sb_pending = 0;
+  term->sb_pending_by_height_decr = 0;
+}
+
 static int row_to_linenr(Term *term, int row) {
   return row != INT_MAX ? row + (int)term->sb_current + 1 : INT_MAX;
 }
@@ -1414,6 +1642,12 @@ emacs_value Fvterm_set_size(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
         term->linenum_added = rows - term->height - term->sb_current;
       }
     }
+    
+    /* Reflow scrollback to new width before libvterm resize */
+    if (cols != term->width) {
+      reflow_scrollback(term, cols);
+    }
+    
     term->resizing = true;
     vterm_set_size(term->vt, rows, cols);
     vterm_screen_flush_damage(term->vts);
