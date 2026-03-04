@@ -26,7 +26,8 @@ void free_lineinfo(LineInfo *line) {
   }
   free(line);
 }
-static int term_sb_push_impl(int cols, const VTermScreenCell *cells, bool continuation, void *data) {
+static int term_sb_push_impl(int cols, const VTermScreenCell *cells,
+                             bool continuation, void *data) {
   Term *term = (Term *)data;
 
   if (!term->sb_size) {
@@ -70,8 +71,7 @@ static int term_sb_push_impl(int cols, const VTermScreenCell *cells, bool contin
   sbrow->continuation = continuation;
   memmove(term->lines, term->lines + 1,
           sizeof(term->lines[0]) * (term->lines_len - 1));
-  if (term->resizing &&
-      term->height_resize < 0 &&
+  if (term->resizing && term->height_resize < 0 &&
       term->lines_len + term->height_resize > term->height) {
     /* pushed by window height decr */
     if (term->lines[term->lines_len - 1] != NULL) {
@@ -116,7 +116,8 @@ static int term_sb_push(int cols, const VTermScreenCell *cells, void *data) {
 }
 
 #ifndef VTermPushline4NotExists
-static int term_sb_push4(int cols, const VTermScreenCell *cells, bool continuation, void *data) {
+static int term_sb_push4(int cols, const VTermScreenCell *cells,
+                         bool continuation, void *data) {
   return term_sb_push_impl(cols, cells, continuation, data);
 }
 #endif
@@ -125,7 +126,8 @@ static int term_sb_push4(int cols, const VTermScreenCell *cells, bool continuati
 /// @param cols
 /// @param cells  VTerm state to update.
 /// @param data   Term
-static int term_sb_pop_impl(int cols, VTermScreenCell *cells, bool *continuation, void *data) {
+static int term_sb_pop_impl(int cols, VTermScreenCell *cells,
+                            bool *continuation, void *data) {
   Term *term = (Term *)data;
 
   if (!term->sb_current) {
@@ -159,12 +161,12 @@ static int term_sb_pop_impl(int cols, VTermScreenCell *cells, bool *continuation
 
   memmove(lines + 1, term->lines, sizeof(term->lines[0]) * term->lines_len);
   lines[0] = sbrow->info;
-  
+
   // Return continuation information if requested
   if (continuation) {
     *continuation = sbrow->continuation;
   }
-  
+
   free(sbrow);
   term->lines_len += 1;
   free(term->lines);
@@ -178,7 +180,8 @@ static int term_sb_pop(int cols, VTermScreenCell *cells, void *data) {
 }
 
 #ifndef VTermPopline4NotExists
-static int term_sb_pop4(int cols, VTermScreenCell *cells, bool *continuation, void *data) {
+static int term_sb_pop4(int cols, VTermScreenCell *cells, bool *continuation,
+                        void *data) {
   return term_sb_pop_impl(cols, cells, continuation, data);
 }
 #endif
@@ -219,7 +222,8 @@ static size_t sb_line_popcount(VTermScreenCell *cells, size_t cols) {
 }
 
 /* Reflow scrollback buffer when terminal width changes.
- * This function merges continuation lines and re-splits them at the new width. */
+ * This function merges continuation lines and re-splits them at the new width.
+ */
 static void reflow_scrollback(Term *term, int new_cols) {
   if (!term->sb_current || !term->sb_size || new_cols <= 0) {
     return;
@@ -229,14 +233,13 @@ static void reflow_scrollback(Term *term, int new_cols) {
   if (old_cols == new_cols) {
     return;
   }
-
   /* First pass: collect all cells from scrollback into a flat buffer,
    * tracking logical line boundaries (where continuation is false) */
-  
+
   /* Count total cells and logical lines */
   size_t total_cells = 0;
   int logical_line_count = 0;
-  
+
   for (int i = term->sb_current - 1; i >= 0; i--) {
     ScrollbackLine *line = term->sb_buffer[i];
     total_cells += line->cols;
@@ -244,77 +247,111 @@ static void reflow_scrollback(Term *term, int new_cols) {
       logical_line_count++;
     }
   }
-  
+
   if (logical_line_count == 0) {
-    logical_line_count = 1;  /* At least one logical line */
+    logical_line_count = 1; /* At least one logical line */
   }
-  
+
   /* Allocate arrays to hold logical lines */
   typedef struct {
     VTermScreenCell *cells;
     size_t cell_count;
-    size_t actual_width;  /* Non-empty cell count */
-    LineInfo *info;       /* LineInfo from first physical line of this logical line */
+    size_t actual_width; /* Non-empty cell count */
+    LineInfo *info; /* LineInfo from first physical line of this logical line */
   } LogicalLine;
-  
+
   LogicalLine *logical_lines = malloc(sizeof(LogicalLine) * logical_line_count);
   int ll_idx = 0;
-  
-  /* Build logical lines by iterating from oldest to newest (bottom to top of scrollback) */
+
+  /* Build logical lines by iterating from oldest to newest (bottom to top of
+   * scrollback) */
   VTermScreenCell *current_cells = NULL;
   size_t current_capacity = 0;
   size_t current_count = 0;
   LineInfo *current_info = NULL;
-  
+  int current_info_offset =
+      0; /* Cell offset where current_info's line starts */
+
   for (int i = term->sb_current - 1; i >= 0; i--) {
     ScrollbackLine *line = term->sb_buffer[i];
-    
+
     if (!line->continuation && current_cells != NULL) {
       /* End of previous logical line, save it */
       logical_lines[ll_idx].cells = current_cells;
       logical_lines[ll_idx].cell_count = current_count;
-      logical_lines[ll_idx].actual_width = sb_line_popcount(current_cells, current_count);
+      logical_lines[ll_idx].actual_width =
+          sb_line_popcount(current_cells, current_count);
       logical_lines[ll_idx].info = current_info;
       ll_idx++;
       current_cells = NULL;
       current_count = 0;
       current_capacity = 0;
       current_info = NULL;
+      current_info_offset = 0;
     }
-    
+
     /* Append this line's cells to current logical line */
     size_t new_count = current_count + line->cols;
     if (new_count > current_capacity) {
-      current_capacity = new_count + 256;  /* Add some slack */
-      VTermScreenCell *new_cells = malloc(sizeof(VTermScreenCell) * current_capacity);
+      current_capacity = new_count + 256; /* Add some slack */
+      VTermScreenCell *new_cells =
+          malloc(sizeof(VTermScreenCell) * current_capacity);
       if (current_cells) {
-        memcpy(new_cells, current_cells, sizeof(VTermScreenCell) * current_count);
+        memcpy(new_cells, current_cells,
+               sizeof(VTermScreenCell) * current_count);
         free(current_cells);
       }
       current_cells = new_cells;
     }
-    memcpy(current_cells + current_count, line->cells, sizeof(VTermScreenCell) * line->cols);
-    current_count = new_count;
-    
-    /* Keep the LineInfo from the first physical line (which is the last one we see
-     * since we're iterating backwards) */
-    if (current_info == NULL) {
+    memcpy(current_cells + current_count, line->cells,
+           sizeof(VTermScreenCell) * line->cols);
+
+    /* Get LineInfo from the first physical line of the logical line.
+     * Since we iterate from oldest to newest, and continuation=false marks
+     * the start of a logical line, we get info from that line. */
+    if (!line->continuation) {
+      /* This is the first physical line of the logical line */
       current_info = line->info;
-      line->info = NULL;  /* Transfer ownership */
+      current_info_offset = (int)current_count; /* Offset before appending */
+      line->info = NULL;                        /* Transfer ownership */
+
+      /* Adjust prompt_col: it was relative to this physical line,
+       * now it needs to be relative to the logical line start.
+       * Since this is the first physical line, prompt_col stays the same
+       * (no offset needed). */
+    } else if (line->info != NULL) {
+      /* This is a continuation line with LineInfo - shouldn't normally happen,
+       * but if it does, we need to adjust prompt_col */
+      if (current_info == NULL) {
+        current_info = line->info;
+        current_info_offset = (int)current_count;
+        line->info = NULL;
+        /* Adjust prompt_col to account for previous cells in logical line */
+        if (current_info->prompt_col >= 0) {
+          current_info->prompt_col += current_info_offset;
+        }
+      } else {
+        /* Already have info, free this one */
+        free_lineinfo(line->info);
+        line->info = NULL;
+      }
     }
+
+    current_count = new_count;
   }
-  
+
   /* Save the last logical line */
   if (current_cells != NULL) {
     logical_lines[ll_idx].cells = current_cells;
     logical_lines[ll_idx].cell_count = current_count;
-    logical_lines[ll_idx].actual_width = sb_line_popcount(current_cells, current_count);
+    logical_lines[ll_idx].actual_width =
+        sb_line_popcount(current_cells, current_count);
     logical_lines[ll_idx].info = current_info;
     ll_idx++;
   }
-  
+
   int actual_ll_count = ll_idx;
-  
+
   /* Free old scrollback */
   for (int i = 0; i < term->sb_current; i++) {
     if (term->sb_buffer[i]->info != NULL) {
@@ -322,81 +359,80 @@ static void reflow_scrollback(Term *term, int new_cols) {
     }
     free(term->sb_buffer[i]);
   }
-  
+
   /* Second pass: split logical lines at new width and rebuild scrollback */
   int new_sb_count = 0;
-  
+
   /* Count how many physical lines we'll need */
   for (int i = 0; i < actual_ll_count; i++) {
     size_t width = logical_lines[i].actual_width;
     int lines_needed = width > 0 ? (int)((width + new_cols - 1) / new_cols) : 1;
     new_sb_count += lines_needed;
   }
-  
+
   /* Cap at sb_size */
   if (new_sb_count > term->sb_size) {
     new_sb_count = term->sb_size;
   }
-  
-  /* Allocate new scrollback entries, filling from newest to oldest (index 0 is newest) */
-  ScrollbackLine **new_buffer = malloc(sizeof(ScrollbackLine *) * term->sb_size);
+
+  /* Allocate new scrollback entries, filling from newest to oldest (index 0 is
+   * newest) */
+  ScrollbackLine **new_buffer =
+      malloc(sizeof(ScrollbackLine *) * term->sb_size);
   int new_idx = 0;
-  
+
   /* Process logical lines from newest to oldest */
   for (int i = actual_ll_count - 1; i >= 0 && new_idx < new_sb_count; i--) {
     LogicalLine *ll = &logical_lines[i];
     size_t width = ll->actual_width;
     int lines_needed = width > 0 ? (int)((width + new_cols - 1) / new_cols) : 1;
-    
-    /* Create physical lines for this logical line, from last to first
-     * (since sb_buffer[0] is newest) */
-    size_t cell_offset = 0;
-    for (int j = 0; j < lines_needed && new_idx < new_sb_count; j++) {
-      size_t line_start = (size_t)j * new_cols;
-      size_t line_width = (width > line_start + new_cols) ? (size_t)new_cols : 
-                          (width > line_start ? width - line_start : 0);
-      
-      ScrollbackLine *sbrow = malloc(sizeof(ScrollbackLine) + (size_t)new_cols * sizeof(sbrow->cells[0]));
-      sbrow->cols = new_cols;
-      sbrow->continuation = (j > 0);  /* First line of logical line is not continuation */
-      sbrow->info = (j == 0) ? ll->info : NULL;  /* Only first physical line gets LineInfo */
-      
-      /* Copy cells */
-      for (int c = 0; c < new_cols; c++) {
-        if (c < (int)line_width && line_start + c < ll->cell_count) {
-          sbrow->cells[c] = ll->cells[line_start + c];
-        } else {
-          /* Empty cell */
-          memset(&sbrow->cells[c], 0, sizeof(VTermScreenCell));
-          sbrow->cells[c].width = 1;
-        }
-      }
-      
-      /* Insert at correct position - we're building from newest logical line,
-       * but within each logical line we go from first physical to last.
-       * sb_buffer[0] should be the last physical line of the newest logical line. */
-      /* Actually, we need to insert in reverse order within each logical line */
-    }
-    
-    /* Re-do: create lines in correct order for scrollback (index 0 = newest physical line) */
-    /* For the current logical line, generate physical lines and prepend to buffer */
+
     int phys_lines_for_ll = lines_needed;
     if (new_idx + phys_lines_for_ll > new_sb_count) {
       phys_lines_for_ll = new_sb_count - new_idx;
     }
-    
+
+    /* Determine which physical line gets the LineInfo, and adjust prompt_col.
+     * prompt_col is the column position in the logical line. We need to find
+     * which physical line it falls on and adjust it to be relative to that
+     * line. */
+    int info_phys_line = 0; /* Which physical line gets the LineInfo */
+    int adjusted_prompt_col = -1;
+    if (ll->info && ll->info->prompt_col >= 0) {
+      info_phys_line = ll->info->prompt_col / new_cols;
+      adjusted_prompt_col = ll->info->prompt_col % new_cols;
+      /* If prompt_col falls beyond the lines we're creating, put info on last
+       * line */
+      if (info_phys_line >= phys_lines_for_ll) {
+        info_phys_line = phys_lines_for_ll - 1;
+        adjusted_prompt_col = -1; /* Invalid position now */
+      }
+    }
+
     /* Create temp array for this logical line's physical lines */
-    ScrollbackLine **temp = malloc(sizeof(ScrollbackLine *) * phys_lines_for_ll);
+    ScrollbackLine **temp =
+        malloc(sizeof(ScrollbackLine *) * phys_lines_for_ll);
     for (int j = 0; j < phys_lines_for_ll; j++) {
       size_t line_start = (size_t)j * new_cols;
-      size_t line_width = (width > line_start + new_cols) ? (size_t)new_cols :
-                          (width > line_start ? width - line_start : 0);
-      
-      ScrollbackLine *sbrow = malloc(sizeof(ScrollbackLine) + (size_t)new_cols * sizeof(sbrow->cells[0]));
+      size_t line_width = (width > line_start + new_cols)
+                              ? (size_t)new_cols
+                              : (width > line_start ? width - line_start : 0);
+
+      ScrollbackLine *sbrow = malloc(
+          sizeof(ScrollbackLine) + (size_t)new_cols * sizeof(sbrow->cells[0]));
       sbrow->cols = new_cols;
       sbrow->continuation = (j > 0);
-      sbrow->info = (j == 0) ? ll->info : NULL;
-      
+
+      /* Assign LineInfo to the physical line containing the prompt */
+      if (j == info_phys_line && ll->info) {
+        sbrow->info = ll->info;
+        if (adjusted_prompt_col >= 0) {
+          sbrow->info->prompt_col = adjusted_prompt_col;
+        }
+      } else {
+        sbrow->info = NULL;
+      }
+
       for (int c = 0; c < new_cols; c++) {
         if (c < (int)line_width && line_start + c < ll->cell_count) {
           sbrow->cells[c] = ll->cells[line_start + c];
@@ -407,17 +443,17 @@ static void reflow_scrollback(Term *term, int new_cols) {
       }
       temp[j] = sbrow;
     }
-    
+
     /* Insert in reverse order so newest physical line is at lower index */
     for (int j = phys_lines_for_ll - 1; j >= 0; j--) {
       new_buffer[new_idx++] = temp[j];
     }
     free(temp);
-    
+
     /* Clear info pointer since we transferred ownership */
     ll->info = NULL;
   }
-  
+
   /* Free logical lines */
   for (int i = 0; i < actual_ll_count; i++) {
     free(logical_lines[i].cells);
@@ -426,12 +462,12 @@ static void reflow_scrollback(Term *term, int new_cols) {
     }
   }
   free(logical_lines);
-  
+
   /* Replace scrollback buffer */
   free(term->sb_buffer);
   term->sb_buffer = new_buffer;
   term->sb_current = new_idx;
-  
+
   /* Reset pending counts since we've restructured everything */
   term->sb_pending = 0;
   term->sb_pending_by_height_decr = 0;
@@ -466,7 +502,7 @@ static void fetch_cell(Term *term, int row, int col, VTermScreenCell *cell) {
 static char *get_row_directory(Term *term, int row) {
   if (row < 0) {
     ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
-    if ( sbrow && sbrow->info && sbrow->info->directory ) {
+    if (sbrow && sbrow->info && sbrow->info->directory) {
       return sbrow->info->directory;
     } else {
       return NULL;
@@ -1642,12 +1678,12 @@ emacs_value Fvterm_set_size(emacs_env *env, ptrdiff_t nargs, emacs_value args[],
         term->linenum_added = rows - term->height - term->sb_current;
       }
     }
-    
+
     /* Reflow scrollback to new width before libvterm resize */
     if (cols != term->width) {
       reflow_scrollback(term, cols);
     }
-    
+
     term->resizing = true;
     vterm_set_size(term->vt, rows, cols);
     vterm_screen_flush_damage(term->vts);

@@ -89,7 +89,7 @@ else()
   ExternalProject_add(libvterm
     # GIT_REPOSITORY https://github.com/jixiuf/libvterm.git
     GIT_REPOSITORY file:///home/jixiuf/repos/libvterm/.git
-    GIT_TAG HEAD
+    GIT_TAG fork
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ${LIBVTERM_BUILD_COMMAND} "CFLAGS='-fPIC'" "LDFLAGS='-static'"
     BUILD_IN_SOURCE ON
