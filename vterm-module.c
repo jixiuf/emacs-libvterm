@@ -521,6 +521,28 @@ static LineInfo *get_lineinfo(Term *term, int row) {
     return term->lines[row];
   }
 }
+
+/* Check if a row in the screen buffer is a continuation of the previous row */
+static bool is_continuation_row(Term *term, int row) {
+#ifdef VTermEnableReflowNotExists
+  return false;
+#endif
+  if (row < 0) {
+    /* Scrollback buffer */
+    ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
+    return sbrow->continuation;
+  } else {
+    /* Screen buffer - use libvterm's lineinfo */
+    VTermState *state = vterm_obtain_state(term->vt);
+    if (state) {
+      const VTermLineInfo *lineinfo = vterm_state_get_lineinfo(state, row);
+      if (lineinfo && lineinfo->continuation) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
 static bool is_eol(Term *term, int end_col, int row, int col) {
   /* This cell is EOL if this and every cell to the right is black */
   if (row >= 0) {
@@ -669,8 +691,15 @@ static void refresh_lines(Term *term, emacs_env *env, int start_row,
       emacs_value text = render_text(env, term, buffer, length, &lastCell);
       insert(env, text);
       length = 0;
-      text = render_fake_newline(env, term);
-      insert(env, text);
+      /* Check if this is a continuation row - if so, don't insert fake newline
+       */
+      bool is_continuation = is_continuation_row(term, i);
+      if (is_continuation) {
+        text = render_fake_newline(env, term);
+        insert(env, text);
+      } else {
+        PUSH_BUFFER('\n');
+      }
     }
   }
   emacs_value text = render_text(env, term, buffer, length, &lastCell);
