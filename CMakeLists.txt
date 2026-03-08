@@ -86,15 +86,30 @@ else()
     message(FATAL_ERROR "libtool not found. Please install libtool")
   endif()
 
-  ExternalProject_add(libvterm
-    # GIT_REPOSITORY https://github.com/jixiuf/libvterm.git
-    GIT_REPOSITORY file:///home/jixiuf/repos/libvterm/.git
-    GIT_TAG fork
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ${LIBVTERM_BUILD_COMMAND} "CFLAGS='-fPIC'" "LDFLAGS='-static'"
-    BUILD_IN_SOURCE ON
-    INSTALL_COMMAND "")
+  # ExternalProject_add(libvterm
+  #   # GIT_REPOSITORY https://github.com/jixiuf/libvterm.git
+  #   GIT_REPOSITORY file:///home/jixiuf/repos/libvterm/.git
+  #   GIT_TAG fork
+  #   CONFIGURE_COMMAND ""
+  #   BUILD_COMMAND ${LIBVTERM_BUILD_COMMAND} "CFLAGS='-fPIC'" "LDFLAGS='-static'"
+  #   BUILD_IN_SOURCE ON
+  #   INSTALL_COMMAND "")
 
+ExternalProject_Add(libvterm
+    SOURCE_DIR          /home/jixiuf/repos/libvterm
+    DOWNLOAD_COMMAND    ""
+    UPDATE_COMMAND      ""
+    
+    # 强制每次构建
+    BUILD_ALWAYS        ON
+    BUILD_IN_SOURCE     ON
+    
+    CONFIGURE_COMMAND   ""
+    # 将 CFLAGS 作为环境变量传递，并确保传递给 make
+    BUILD_COMMAND       ${CMAKE_COMMAND} -E env CFLAGS=-fPIC LDFLAGS=-static ${LIBVTERM_BUILD_COMMAND}
+    
+    INSTALL_COMMAND     ""
+)
   ExternalProject_Get_property(libvterm SOURCE_DIR)
 
   set(LIBVTERM_INCLUDE_DIR ${SOURCE_DIR}/include)

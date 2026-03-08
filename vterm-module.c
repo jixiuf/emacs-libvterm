@@ -1,5 +1,6 @@
 #include "vterm-module.h"
 #include "elisp.h"
+#include "log.h"
 #include "utf8.h"
 #include <assert.h>
 #include <fcntl.h>
@@ -29,6 +30,18 @@ void free_lineinfo(LineInfo *line) {
 static int term_sb_push_impl(int cols, const VTermScreenCell *cells,
                              bool continuation, void *data) {
   Term *term = (Term *)data;
+  vtermlog("[EMACS-LIBVTERM-RESIZE] term_sb_push: cols=%d, continuation=%d, "
+           "sb_current=%d, sb_size=%d",
+           cols, continuation, term->sb_current, term->sb_size);
+
+  VTermState *state = vterm_obtain_state(term->vt);
+
+  // Debug: check lineinfo before
+  if (state) {
+    const VTermLineInfo *lineinfo = vterm_state_get_lineinfo(state, 0);
+    vtermlog("[DEBUG] term_sb_push: BEFORE lineinfo[0].continuation=%d",
+             lineinfo ? lineinfo->continuation : -1);
+  }
 
   if (!term->sb_size) {
     return 0;
@@ -108,6 +121,15 @@ static int term_sb_push_impl(int cols, const VTermScreenCell *cells,
 
   memcpy(sbrow->cells, cells, c * sizeof(cells[0]));
 
+  // Debug: check ALL lineinfo after sb_push
+  if (state) {
+    for (int i = 0; i < 5; i++) {
+      const VTermLineInfo *li = vterm_state_get_lineinfo(state, i);
+      vtermlog("[DEBUG] term_sb_push: AFTER lineinfo[%d].continuation=%d", i,
+               li ? li->continuation : -1);
+    }
+  }
+
   return 1;
 }
 
@@ -129,6 +151,9 @@ static int term_sb_push4(int cols, const VTermScreenCell *cells,
 static int term_sb_pop_impl(int cols, VTermScreenCell *cells,
                             bool *continuation, void *data) {
   Term *term = (Term *)data;
+  vtermlog(
+      "[EMACS-LIBVTERM-RESIZE] term_sb_pop: cols=%d, sb_current=%d, sb_size=%d",
+      cols, term->sb_current, term->sb_size);
 
   if (!term->sb_current) {
     return 0;
@@ -530,12 +555,17 @@ static bool is_continuation_row(Term *term, int row) {
   if (row < 0) {
     /* Scrollback buffer */
     ScrollbackLine *sbrow = term->sb_buffer[-row - 1];
+    vtermlog("[DEBUG] is_continuation_row: row=%d (sb), continuation=%d", row,
+             sbrow->continuation);
     return sbrow->continuation;
   } else {
     /* Screen buffer - use libvterm's lineinfo */
     VTermState *state = vterm_obtain_state(term->vt);
     if (state) {
       const VTermLineInfo *lineinfo = vterm_state_get_lineinfo(state, row);
+      vtermlog("[DEBUG] is_continuation_row: row=%d (screen), lineinfo=%p, "
+               "continuation=%d",
+               row, (void *)lineinfo, lineinfo ? lineinfo->continuation : -1);
       if (lineinfo && lineinfo->continuation) {
         return true;
       }
@@ -694,6 +724,9 @@ static void refresh_lines(Term *term, emacs_env *env, int start_row,
       /* Check if this is a continuation row - if so, don't insert fake newline
        */
       bool is_continuation = is_continuation_row(term, i);
+      vtermlog(
+          "[DEBUG] refresh_lines: row %d: is_continuation=%d, inserting %s", i,
+          is_continuation, is_continuation ? "FAKE_NEWLINE" : "REAL_NEWLINE");
       if (is_continuation) {
         text = render_fake_newline(env, term);
         insert(env, text);
@@ -716,6 +749,23 @@ static void refresh_screen(Term *term, emacs_env *env) {
   // Term height may have decreased before `invalid_end` reflects it.
   term->invalid_end = MIN(term->invalid_end, term->height);
 
+  vtermlog("[DEBUG] refresh_screen: BEFORE - invalid_start=%d, invalid_end=%d, "
+           "width=%d, height=%d, linenum=%d, sb_current=%d",
+           term->invalid_start, term->invalid_end, term->width, term->height,
+           term->linenum, term->sb_current);
+
+  // Debug: print all lineinfo continuation
+  VTermState *state = vterm_obtain_state(term->vt);
+  if (state) {
+    const VTermLineInfo *li_base = vterm_state_get_lineinfo(state, 0);
+    vtermlog("[DEBUG] refresh_screen: lineinfo base=%p", (void *)li_base);
+    for (int i = 0; i < term->height; i++) {
+      const VTermLineInfo *li = vterm_state_get_lineinfo(state, i);
+      vtermlog("[DEBUG] refresh_screen: BEFORE lineinfo[%d].continuation=%d", i,
+               li ? li->continuation : -1);
+    }
+  }
+
   if (term->invalid_end >= term->invalid_start) {
     int startrow = -(term->height - term->invalid_start - term->linenum_added);
     /* startrow is negative,so we backward  -startrow lines from end of buffer
@@ -723,6 +773,9 @@ static void refresh_screen(Term *term, emacs_env *env) {
      */
     goto_line(env, startrow);
     delete_lines(env, startrow, term->invalid_end - term->invalid_start, true);
+    vtermlog("[DEBUG] refresh_screen: AFTER delete - will refresh rows %d to "
+             "%d with cols=%d",
+             term->invalid_start, term->invalid_end, term->width);
     refresh_lines(term, env, term->invalid_start, term->invalid_end,
                   term->width);
 
@@ -733,6 +786,15 @@ static void refresh_screen(Term *term, emacs_env *env) {
 
   term->invalid_start = INT_MAX;
   term->invalid_end = -1;
+
+  // Debug: print all lineinfo continuation after refresh
+  if (state) {
+    for (int i = 0; i < term->height; i++) {
+      const VTermLineInfo *li = vterm_state_get_lineinfo(state, i);
+      vtermlog("[DEBUG] refresh_screen: AFTER lineinfo[%d].continuation=%d", i,
+               li ? li->continuation : -1);
+    }
+  }
 }
 
 static int term_resize(int rows, int cols, void *user_data) {
@@ -740,8 +802,16 @@ static int term_resize(int rows, int cols, void *user_data) {
   /* when the window height decreased, */
   /*  the value of term->invalid_end can't bigger than window height */
   Term *term = (Term *)user_data;
+  int old_cols = term->width;
   term->invalid_start = 0;
   term->invalid_end = rows;
+  vtermlog("[EMACS-LIBVTERM-RESIZE] term_resize: old=%dx%d new=%dx%d",
+           term->height, term->width, rows, cols);
+  vtermlog("[DEBUG] term_resize: screen buffer reflow starting, old_cols=%d",
+           old_cols);
+  vtermlog("[EMACS-LIBVTERM-RESIZE] term_resize: resizing=%d, "
+           "height_resize=%d, lines_len=%d",
+           term->resizing, term->height_resize, term->lines_len);
 
   /* if rows=term->lines_len, that means term_sb_pop already resize term->lines
    */
@@ -785,8 +855,14 @@ static int term_resize(int rows, int cols, void *user_data) {
 
 // Refresh the scrollback of an invalidated terminal.
 static void refresh_scrollback(Term *term, emacs_env *env) {
+  vtermlog("[EMACS-LIBVTERM-RESIZE] refresh_scrollback: sb_current=%d, "
+           "sb_pending=%d, height=%d, linenum=%d",
+           term->sb_current, term->sb_pending, term->height, term->linenum);
   int max_line_count = (int)term->sb_current + term->height;
   int del_cnt = 0;
+  vtermlog("[EMACS-LIBVTERM-RESIZE] refresh_scrollback: sb_clear_pending "
+           "check, linenum=%d, height=%d, del_cnt=%d",
+           term->linenum, term->height, del_cnt);
   if (term->sb_clear_pending) {
     del_cnt = term->linenum - term->height;
     if (del_cnt > 0) {
@@ -796,6 +872,9 @@ static void refresh_scrollback(Term *term, emacs_env *env) {
     term->sb_clear_pending = false;
   }
   if (term->sb_pending > 0) {
+    vtermlog("[EMACS-LIBVTERM-RESIZE] refresh_scrollback: processing "
+             "sb_pending=%d, sb_size=%d, sb_pending_by_height_decr=%d",
+             term->sb_pending, term->sb_size, term->sb_pending_by_height_decr);
     // This means that either the window height has decreased or the screen
     // became full and libvterm had to push all rows up. Convert the first
     // pending scrollback row into a string and append it just above the visible
@@ -803,6 +882,9 @@ static void refresh_scrollback(Term *term, emacs_env *env) {
 
     del_cnt = term->linenum - term->height - (int)term->sb_size +
               term->sb_pending - term->sb_pending_by_height_decr;
+    vtermlog("[EMACS-LIBVTERM-RESIZE] refresh_scrollback: sb_pending "
+             "processing, linenum=%d, height=%d, sb_size=%d, del_cnt=%d",
+             term->linenum, term->height, term->sb_size, del_cnt);
     if (del_cnt > 0) {
       delete_lines(env, 1, del_cnt, true);
       term->linenum -= del_cnt;
@@ -825,6 +907,8 @@ static void refresh_scrollback(Term *term, emacs_env *env) {
   del_cnt = term->linenum - max_line_count;
   if (del_cnt > 0) {
     term->linenum -= del_cnt;
+    vtermlog("[EMACS-LIBVTERM-RESIZE] delete_lines called: pos=-%d, count=%d",
+             del_cnt, del_cnt);
     /* -del_cnt is negative, so we delete_lines from end of buffer.
        this line means: delete del_cnt count of lines at end of buffer.
      */
@@ -832,6 +916,9 @@ static void refresh_scrollback(Term *term, emacs_env *env) {
   }
 
   term->sb_pending_by_height_decr = 0;
+  vtermlog("[EMACS-LIBVTERM-RESIZE] refresh_scrollback COMPLETE: linenum=%d, "
+           "height=%d, sb_current=%d",
+           term->linenum, term->height, term->sb_current);
   term->height_resize = 0;
 }
 
